@@ -1,0 +1,138 @@
+---
+title: "Ghana MC"
+author: "JS"
+date: "2024-03-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Traducción del excel de Ghana hecho por Till a R.
+Copio la fórmula de la celda M12 que hace la simulación =SI(G11;INV.NORM(MATRIZALEAT(1;$N$2);E11;F11);SECUENCIA(1;$N$2;E11;0))
+
+Donde aplica una función ifelse, SI  G11 = 1 (o sea quiere hacer el cálculo), entonces hace MC con la función INV.NORM y la corre en una matriz de 1 fila y 16000 columnas (n de la simulacion) con distribución media= E11 y desvio F11 que es el input paràmetro que viene de la pestaña Sources Uncertainty. Else toma el valor del parámetro y lo suma  
+
+```{r}
+# Definir las variables necesarias
+G11 <- TRUE # Valor lógico para G11 si quisieramos correrlo con la lògica de Till
+N2 <- 1000  # Valor de $N$2 n de la simulaciòn
+E11 <- 27.35	
+  # input media Valor de E11
+F11 <- 5.35   # input desvio Valor de F11
+valores_aleatorios <- abs(rnorm(n = 200, mean = E11, sd = F11))
+
+
+if (G11) {
+  valores_aleatorios <- abs(rnorm(n = 200, mean = E11, sd = F11))
+  resultados <- rnorm(valores_aleatorios, mean = E11, sd = F11)
+} else {
+  resultados <- seq(1, N2, length.out = N2)
+}
+resultados
+```
+
+Import Ghana data resumed to test the code
+
+```{r}
+# Import Ghana data resumed to test the code
+library(readxl)
+library(dplyr)
+data_prueba <- read_excel("C:/Users/jimec/Downloads/Parameters_MC_R_practice.xlsx")
+# parameterizing
+n <- 16000 # Number or simulations
+media_vector <- data_prueba$media  # Original mean parameter for MC from excel Ghana
+desvio_vector <- data_prueba$sd  # Original standar error parameter for MC from excel Ghana
+Biomass_meassurements <- data_prueba$`Biomass measurements` # Names of biomass compartment
+```
+
+A function for running Montecarlo with Ghana data 
+
+```{r}
+run_monte_carlo_vector2 <- function(n, media_vector, desvio_vector) {
+  # Verify the values have the same length
+  if (length(media_vector) != length(desvio_vector)) {
+    stop("Mean vector y standar error vector must have same length.")
+  }
+  
+  # Create a matrix to put MC simulations results / Crear una matriz para almacenar los resultados de las simulaciones
+  resultados_matriz <- matrix(nrow = length(media_vector), ncol = n)
+  
+  # Perform the MC simulation for each combination of mean and standar deviation/ Realizar la simulación para cada combinación    # de media y desvío
+  for (i in seq_along(media_vector)) {
+    # Generate random samples using a normal distribution / Generar muestras aleatorias usando una distribución normal
+    muestras <- rnorm(n, mean = media_vector[i], sd = desvio_vector[i])
+    
+    # Store the generated samples in the result matrix / Almacenar las muestras generadas en la matriz de resultados
+    resultados_matriz[i, ] <- muestras
+  }
+  
+  # Convert the results matrix into a data frame for easy manipulation / Convertir la matriz de resultados en un df
+  # para facilitar su manipulación
+  resultados_df <- as.data.frame(resultados_matriz)
+  colnames(resultados_df) <- paste0("Simulación_", 1:n) #Add a header with number to each simulation
+  
+  # Add the original means and variances as columns / Añadir las medias y desvíos correspondientes como columnas
+  resultados_df$Parameter_Media <- media_vector
+  resultados_df$Parameter_standar_error <- desvio_vector
+  resultados_df$Biomass_meassurements <- Biomass_meassurements
+  
+   # Estimate MC simulation means and standard deviations / Calcular la media y el desvío de todas las simulaciones
+  resultados_df$MC_simulation_mean <- rowMeans(resultados_matriz)
+  resultados_df$MC_simulation_SD <- apply(resultados_matriz, 1, sd)
+  
+  # Return df results / Retornar el data frame de resultados
+  return(resultados_df)
+}
+
+# Run the Monte Carlo simulation and save the results in a data frame
+resultados_simulacion <- run_monte_carlo_vector2(n, media_vector, desvio_vector)
+ 
+# Put the main parameters and MC output at the beginning of the table and print
+(simulation_results <- resultados_simulacion %>% dplyr::select(16003,16001,16002,16004,16005,1:16000))
+
+writexl::write_xlsx(simulation_results, "C:/Users/jimec/Downloads/MC_sim_results_V1.xlsx")
+
+```
+
+```{r}
+# #A function for running Montecarlo for our dataframe without original data and means and sd from the output
+# run_monte_carlo_vector <- function(n, media_vector, desvio_vector) {
+#   # Verify the values have the same length
+#   if (length(media_vector) != length(desvio_vector)) {
+#     stop("Media y standar error must have same length.")
+#   }
+#   
+#   # Inicializar una lista para almacenar los resultados de cada simulación
+#   resultados <- list()
+#   
+#   # Realizar la simulación para cada combinación de media y desvío
+#   for (i in seq_along(media_vector)) {
+#     # Generar muestras aleatorias usando una distribución normal
+#     muestras <- rnorm(n, mean = media_vector[i], sd = desvio_vector[i])
+#     
+#     # Almacenar las muestras generadas en la lista de resultados
+#     resultados[[i]] <- muestras
+#   }
+#   
+#   # Retornar la lista de resultados
+#   return(resultados)
+# }
+# 
+# # Ejemplo de uso de la función
+# n <- 1600
+# mean.data <- data_prueba$media  # Vector de medias
+# sd.data <- data_prueba$sd  # Vector de desvíos
+# 
+# # Ejecutar la simulación de Monte Carlo
+# resultados_simulacion <- run_monte_carlo_vector(n, mean.data, sd.data)
+# 
+# 
+# # Imprimir las primeras 10 muestras generadas para cada combinación de media y desvío
+# for (i in seq_along(resultados_simulacion)) {
+#   cat("For this Media results are =", mean.data[i], "For this Standar error results are=", sd.data[i], ":\n")
+#   print(head(resultados_simulacion[[i]], 10))
+# }
+
+```
